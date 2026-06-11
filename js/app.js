@@ -628,7 +628,7 @@ function showAuth(mode){
     ${mode==="signup"?`<input class="input" id="authPass2" type="password" placeholder="Confirm password" autocomplete="new-password"/>`:""}
     <div class="lock-err" id="authErr"></div>
     <button class="btn btn-primary" style="width:100%" id="authGo">${mode==="signup"?"Create account":mode==="reset"?"Send reset link":"Sign in"}</button>
-    ${mode==="signin"?`<button class="lock-link" onclick="showAuth('signup')">New here? Create an account</button><br><button class="lock-link" onclick="showAuth('reset')">Forgot password?</button>`:`<button class="lock-link" onclick="showAuth('signin')">Back to sign in</button>`}
+    ${mode==="signin"?`<button class="lock-link" onclick="showAuth('reset')">Forgot password?</button>`:`<button class="lock-link" onclick="showAuth('signin')">Back to sign in</button>`}
     <div class="lock-note">Passwords are hashed and verified by Supabase Auth — SpendWell never stores or sees them.</div>`);
   $("authGo").onclick=()=>doAuth(mode);
   const enter=(e)=>{if(e.key==="Enter")doAuth(mode);};
