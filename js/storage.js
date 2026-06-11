@@ -25,17 +25,28 @@ let _saving = false, _dirty = false, _retryTimer = null;
 let canPersist = true;
 function storageOK(){try{localStorage.setItem("__t","1");localStorage.removeItem("__t");return true;}catch(e){return false;}}
 
+// type:"income" collects positive amounts; type:"excluded" (transfers between
+// own accounts etc.) is kept out of spending/income totals, charts and budgets.
+// "general" is the fallback bucket and always sits just before the excluded ones.
 const DEFAULT_CATEGORIES = [
   {id:"income",name:"Income",color:"#2F7D52",budget:0,type:"income"},
-  {id:"groceries",name:"Groceries",color:"#3E6B4F",budget:0},
+  {id:"holidays",name:"Holidays",color:"#3D6E8C",budget:0},
   {id:"eating-out",name:"Eating Out",color:"#C2703D",budget:0},
-  {id:"transport",name:"Transport",color:"#3D6E8C",budget:0},
-  {id:"shopping",name:"Shopping",color:"#A14E78",budget:0},
-  {id:"bills",name:"Bills & Utilities",color:"#7A6A3A",budget:0},
-  {id:"entertainment",name:"Entertainment",color:"#8A5BB0",budget:0},
-  {id:"health",name:"Health & Fitness",color:"#4F9D94",budget:0},
-  {id:"home",name:"Home",color:"#9C6B4A",budget:0},
-  {id:"other",name:"Other",color:"#8C8A82",budget:0},
+  {id:"education",name:"Education",color:"#8A5BB0",budget:0},
+  {id:"groceries",name:"Groceries",color:"#3E6B4F",budget:0},
+  {id:"gym-fitness",name:"Gym & Fitness",color:"#4F9D94",budget:0},
+  {id:"hair-care",name:"Hair Care",color:"#A14E78",budget:0},
+  {id:"transport",name:"Transport",color:"#5C6B8A",budget:0},
+  {id:"fuel",name:"Fuel",color:"#B58A2E",budget:0},
+  {id:"car-insurance",name:"Car Insurance",color:"#7A6A3A",budget:0},
+  {id:"subscriptions",name:"Subscriptions",color:"#9C6B4A",budget:0},
+  {id:"bills",name:"Bills",color:"#B23A2E",budget:0},
+  {id:"entertainment",name:"Entertainment",color:"#5B8AB0",budget:0},
+  {id:"supplements",name:"Supplements",color:"#4F9D6B",budget:0},
+  {id:"expenses",name:"Expenses",color:"#6B7A8C",budget:0},
+  {id:"general",name:"General",color:"#8C8A82",budget:0},
+  {id:"excluded",name:"Excluded",color:"#A8A49B",budget:0,type:"excluded"},
+  {id:"transfer",name:"Transfer",color:"#BBB7AC",budget:0,type:"excluded"},
 ];
 function defaultState(){return {transactions:[],categories:JSON.parse(JSON.stringify(DEFAULT_CATEGORIES)),rules:{},sheet:null};}
 function adoptState(d){

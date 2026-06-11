@@ -23,24 +23,35 @@ function timeAgo(ts){if(!ts)return"";const s=Math.floor((Date.now()-ts)/1000);if
 const KEYWORDS={
   income:["salary","payroll","wages","hmrc","refund","interest","dividend","bonus","reimburse","cashback","payment received"],
   groceries:["tesco","sainsbury","asda","aldi","lidl","morrison","waitrose","co-op","coop","iceland","ocado","marks & spencer","m&s","spar","budgens","farmfoods"],
-  transport:["tfl","transport for london","uber","bolt.eu","trainline","national rail","lner","gwr","avanti","thameslink","shell","bp ","esso","texaco","petrol","fuel","parking","ringgo","addison lee","lime","dvla","dart charge","congestion"],
-  bills:["octopus energy","british gas","edf","e.on","eon","ovo","thames water","vodafone","ee "," o2","three ","sky ","virgin media","bt ","plusnet","council tax","tv licen","netflix","spotify","disney","now tv","icloud","insurance"],
-  health:["pharmacy","boots","superdrug","nhs","dental","dentist","doctor","clinic","optic","specsavers","gym","puregym","pure gym","the gym","fitness","virgin active","third space","john reed","myprotein","vitamin","bjj","jiu"],
   "eating-out":["nando","mcdonald","kfc","burger king","pizza","domino","deliveroo","uber eats","ubereats","just eat","justeat","greggs","pret","costa","starbucks","cafe","caffe","restaurant","kitchen","grill","kebab","sushi","wagamama","five guys","leon","itsu","tantuni"],
+  fuel:["shell","bp ","esso","texaco","petrol","fuel","gulf "],
+  transport:["tfl","transport for london","uber","bolt.eu","trainline","national rail","lner","gwr","avanti","thameslink","parking","ringgo","addison lee","lime","dvla","dart charge","congestion"],
+  subscriptions:["netflix","spotify","disney","now tv","icloud","apple.com","itunes","amazon prime","prime video","youtube premium","audible","patreon"],
+  bills:["octopus energy","british gas","edf","e.on","eon","ovo","thames water","vodafone","ee "," o2","three ","sky ","virgin media","bt ","plusnet","council tax","tv licen"],
+  "car-insurance":["admiral","aviva","direct line","churchill","hastings","insurance"],
+  "gym-fitness":["gym","puregym","pure gym","fitness","virgin active","third space","john reed","classpass","bjj","jiu"],
+  supplements:["myprotein","holland & barrett","vitamin","protein","bulk "],
+  "hair-care":["barber","hair","salon"],
+  holidays:["hotel","airbnb","booking.com","hostel","ryanair","easyjet","jet2","british airways","wizz","expedia","flight"],
+  education:["udemy","coursera","skillshare","tuition","course"],
   entertainment:["cinema","vue","odeon","cineworld","picturehouse","theatre","ticketmaster","steam","playstation","psn","xbox","nintendo","eventbrite","dice"],
-  shopping:["amazon","amzn","ebay","asos","zara","h&m","primark","next ","argos","currys","ikea","john lewis","apple.com","itunes","nike","adidas","sports direct","jd sports","decathlon","screwfix","b&q","wickes","aliexpress","shein","etsy","vinted"],
-  home:["rent","mortgage","homebase","dunelm","the range","furniture","b&m","home bargains","wilko","letting"],
+  transfer:["transfer"],
 };
-const CAT_ORDER=["income","groceries","transport","bills","health","eating-out","entertainment","shopping","home"];
+// subscriptions/bills before transport: "netflix" contains "tfl", so the more
+// specific merchant lists must win before short codes like tfl get a chance
+const CAT_ORDER=["income","groceries","eating-out","subscriptions","bills","fuel","car-insurance","gym-fitness","supplements","entertainment","holidays","education","hair-care","transport","transfer"];
 function merchantKey(desc){return (desc||"").toLowerCase().replace(/[^a-z0-9 ]/g," ").replace(/\s+/g," ").trim().slice(0,18);}
 function autoCategorise(desc,amount){
   const key=merchantKey(desc);
   if(STATE.rules[key])return STATE.rules[key];
   const d=(desc||"").toLowerCase();
-  if(amount>0){for(const w of KEYWORDS.income)if(d.includes(w))return "income";return "income";}
+  if(amount>0){for(const w of KEYWORDS.transfer)if(d.includes(w))return "transfer";return "income";}
   for(const cat of CAT_ORDER){if(cat==="income")continue;for(const w of KEYWORDS[cat])if(d.includes(w))return cat;}
-  return "other";
+  return "general";
 }
+// categories whose transactions don't count as spending or income (transfers etc.)
+function excludedSet(){return new Set(STATE.categories.filter(c=>c.type==="excluded").map(c=>c.id));}
+const isBudgetable=(c)=>c.type!=="income"&&c.type!=="excluded";
 
 // newest first, by transaction date (import id breaks ties). Master order is
 // what every list renders from, so imports/syncs stay sorted too.
@@ -120,13 +131,14 @@ function categoryTarget(c){
   return {target,spent,carryIn,monthly,remaining:target-spent,rolling:!!c.rolling,unit:c.budgetUnit||"month",ytd:false};
 }
 function stats(){
-  let spent=0,income=0; const byCat={};
+  let spent=0,income=0; const byCat={}, excl=excludedSet();
   for(const t of periodTxns()){
+    if(excl.has(t.category))continue; // transfers/excluded are neither spending nor income
     if(t.amount>0) income+=t.amount;
     else{spent+=-t.amount;byCat[t.category]=(byCat[t.category]||0)+-t.amount;}
   }
   let totalBudget=0;
-  for(const c of STATE.categories){if(c.type==="income")continue;totalBudget+=categoryTarget(c).target;}
+  for(const c of STATE.categories){if(!isBudgetable(c))continue;totalBudget+=categoryTarget(c).target;}
   return{spent,income,byCat,totalBudget};
 }
 
@@ -276,7 +288,7 @@ function ingestRows(rows){
       if(f)cat=f.id;else{cat=createCategoryFromName(r.category);created++;}
     }
     if(!cat)cat=autoCategorise(r.description,r.amount);
-    if(!catById()[cat])cat=ensureOther();
+    if(!catById()[cat])cat=ensureFallback();
     STATE.transactions.push({id:++maxId,uid,date:r.date,description:r.description||"",amount:r.amount,category:cat});
     added++;
   }
@@ -367,17 +379,23 @@ function disconnectSheet(){STATE.sheet=null;saveState();closeModal();renderContr
 const SWATCHES=["#3E6B4F","#C2703D","#3D6E8C","#A14E78","#7A6A3A","#8A5BB0","#4F9D94","#9C6B4A","#B23A2E","#2F7D52","#5C6B8A","#B58A2E"];
 function slugifyName(name){return name.toLowerCase().replace(/[^a-z0-9]+/g,"-").replace(/(^-|-$)/g,"")+"-"+Math.random().toString(36).slice(2,5);}
 function findCatByName(name){const k=String(name==null?"":name).trim().toLowerCase();if(!k)return null;return STATE.categories.find(c=>c.name.trim().toLowerCase()===k)||null;}
+// keep the fallback bucket and excluded categories at the end of the list
+function insertCategory(cat){
+  const isTail=(c)=>c.id==="general"||c.id==="other"||c.type==="excluded";
+  STATE.categories=[...STATE.categories.filter(c=>!isTail(c)),cat,...STATE.categories.filter(isTail)];
+}
 function createCategoryFromName(name){
   const clean=String(name).trim().slice(0,40);
   const id=slugifyName(clean);
-  const color=SWATCHES[STATE.categories.length%SWATCHES.length];
-  const other=STATE.categories.filter(c=>c.id==="other");const rest=STATE.categories.filter(c=>c.id!=="other");
-  STATE.categories=[...rest,{id,name:clean,color,budget:0},...other];
+  const cat={id,name:clean,color:SWATCHES[STATE.categories.length%SWATCHES.length],budget:0};
+  // sheet categories named like transfers/exclusions get the non-counting behaviour
+  if(/^(excluded?|exclusions?|transfers?)$/i.test(clean))cat.type="excluded";
+  insertCategory(cat);
   return id;
 }
-function ensureOther(){
-  if(!STATE.categories.some(c=>c.id==="other"))STATE.categories.push({id:"other",name:"Other",color:"#8C8A82",budget:0});
-  return "other";
+function ensureFallback(){
+  if(!STATE.categories.some(c=>c.id==="general"))STATE.categories.push({id:"general",name:"General",color:"#8C8A82",budget:0});
+  return "general";
 }
 function swatchHtml(sel){
   const list=SWATCHES.includes(sel)?SWATCHES:(sel?[sel,...SWATCHES]:SWATCHES);
@@ -396,9 +414,7 @@ function openAddCat(){
 function addCat(){
   const name=$("catName").value.trim();if(!name)return;
   if(findCatByName(name)){toast("There's already a category with that name",true);return;}
-  const id=slugifyName(name);
-  const other=STATE.categories.filter(c=>c.id==="other");const rest=STATE.categories.filter(c=>c.id!=="other");
-  STATE.categories=[...rest,{id,name,color:window._newColor,budget:0},...other];
+  insertCategory({id:slugifyName(name),name,color:window._newColor,budget:0});
   saveState();closeModal();render();
 }
 function openEditCat(id){
@@ -419,7 +435,7 @@ function openEditCat(id){
       <p class="muted" style="font-size:12.5px;margin:0 0 10px">Its transactions and merchant rules move to the category you pick below. Its budget is removed.</p>
       <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
         <span class="muted" style="font-size:12.5px">Move everything to</span>
-        <select class="select" id="catMoveTo">${others.map(o=>`<option value="${o.id}" ${o.id==="other"?"selected":""}>${esc(o.name)}</option>`).join("")}</select>
+        <select class="select" id="catMoveTo">${others.map(o=>`<option value="${o.id}" ${o.id==="general"||o.id==="other"?"selected":""}>${esc(o.name)}</option>`).join("")}</select>
         <button class="btn btn-ghost" style="color:var(--danger)" onclick="deleteCat('${id}')">Delete</button>
       </div></div>`
     :`<p class="muted" style="font-size:12.5px;border-top:1px solid var(--line);padding-top:14px;margin:0">${isIncome?"The income category can be renamed but not deleted — incoming payments need somewhere to live.":"Add another spending category before deleting this one."}</p>`}
@@ -437,7 +453,7 @@ function deleteCat(id){
   const gone=STATE.categories.find(c=>c.id===id);
   if(!gone||gone.type==="income")return;
   const sel=$("catMoveTo");
-  const target=STATE.categories.find(c=>c.id===(sel?sel.value:"other")&&c.id!==id);
+  const target=STATE.categories.find(c=>c.id===(sel?sel.value:"general")&&c.id!==id);
   if(!target){toast("Pick a category to move transactions to",true);return;}
   let moved=0;
   for(const t of STATE.transactions)if(t.category===id){t.category=target.id;moved++;}
@@ -497,12 +513,12 @@ function emptyView(){
 }
 
 function renderDashboard(){
-  const s=stats(),cats=catById();
+  const s=stats(),cats=catById(),excl=excludedSet();
   const donut=Object.entries(s.byCat).map(([id,value])=>({id,name:cats[id]?cats[id].name:id,value,color:cats[id]?cats[id].color:"#999"})).sort((a,b)=>b.value-a.value);
-  const exp=STATE.categories.filter(c=>c.type!=="income");
+  const exp=STATE.categories.filter(isBudgetable);
   const pset=new Set(periodBounds().months);
   const trend=(()=>{
-    const m={};for(const t of STATE.transactions)if(t.amount<0){const ym=t.date.slice(0,7);m[ym]=(m[ym]||0)+-t.amount;}
+    const m={};for(const t of STATE.transactions)if(t.amount<0&&!excl.has(t.category)){const ym=t.date.slice(0,7);m[ym]=(m[ym]||0)+-t.amount;}
     let keys=Object.keys(m).sort();
     if(period==="year") keys=keys.filter(k=>k.slice(0,4)===year);
     keys=keys.slice(-12);
@@ -562,7 +578,9 @@ function budgetInfoHtml(c){
   :`<div style="font-size:12.5px;color:var(--muted)">${sp>0?fmt(sp)+" spent · no budget set":"No budget set"}</div>`;
 }
 function renderBudgets(){
-  const s=stats();const exp=STATE.categories.filter(c=>c.type!=="income");
+  const s=stats();const exp=STATE.categories.filter(isBudgetable);
+  const excl=STATE.categories.filter(c=>c.type==="excluded");
+  const exclCount=(id)=>periodTxns().filter(t=>t.category===id).length;
   $("viewBody").innerHTML=`
     <div class="card">
       <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:2px;gap:10px;flex-wrap:wrap"><div class="serif" style="font-size:18px">Budgets</div><div class="muted" style="font-size:13px" id="budTotal">Target ${fmt(s.totalBudget)}</div></div>
@@ -574,6 +592,11 @@ function renderBudgets(){
         <div id="budinfo-${c.id}">${budgetInfoHtml(c)}</div>
       </div>`).join("")}</div>
     </div>
+    ${excl.length?`<div class="card" style="margin-top:16px">
+      <div style="font-weight:600;font-size:14.5px;margin-bottom:2px">Excluded from budgets</div>
+      <div class="muted" style="font-size:13px;margin-bottom:12px">Transactions in these categories (e.g. transfers between your own accounts) don't count towards spending, income, charts or budgets.</div>
+      ${excl.map(c=>`<div style="display:flex;align-items:center;gap:10px;padding:7px 0"><span class="dot" style="background:${c.color}"></span><span style="font-weight:600;font-size:14px;flex:1;min-width:110px">${esc(c.name)}</span><span class="muted" style="font-size:12.5px">${exclCount(c.id)} transaction${exclCount(c.id)===1?"":"s"} in ${periodLabel()}</span><button class="edit-cat" onclick="openEditCat('${c.id}')" title="Rename, recolour or delete this category">✎</button></div>`).join("")}
+    </div>`:""}
     <div class="card" style="margin-top:16px;display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap"><div><div style="font-weight:600;font-size:14.5px">Add a category</div><div class="muted" style="font-size:13px">Create your own spending categories.</div></div><button class="btn btn-ghost" onclick="openAddCat()">+ New category</button></div>
     `;
 }
