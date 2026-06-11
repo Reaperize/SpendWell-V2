@@ -4,8 +4,17 @@
 
 const $ = (id) => document.getElementById(id);
 const GBP = new Intl.NumberFormat("en-GB",{style:"currency",currency:"GBP"});
-const fmt = (n)=>GBP.format(n||0);
-const fmtShort = (n)=>{const a=Math.abs(n||0);return a>=1000?"£"+(n/1000).toFixed(1).replace(/\.0$/,"")+"k":"£"+Math.round(n||0);};
+// privacy toggle: every monetary display funnels through fmt/fmtShort, so
+// masking here hides amounts app-wide (device-local preference, not synced)
+let hideAmounts=false; try{hideAmounts=localStorage.getItem("spendwell.hideAmounts")==="1";}catch(e){}
+const MASK="£••••";
+const fmt = (n)=>hideAmounts?MASK:GBP.format(n||0);
+const fmtShort = (n)=>{if(hideAmounts)return MASK;const a=Math.abs(n||0);return a>=1000?"£"+(n/1000).toFixed(1).replace(/\.0$/,"")+"k":"£"+Math.round(n||0);};
+function toggleAmounts(){
+  hideAmounts=!hideAmounts;
+  try{localStorage.setItem("spendwell.hideAmounts",hideAmounts?"1":"0");}catch(e){}
+  render();
+}
 const esc = (s)=>String(s==null?"":s).replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
 const monthLabel = (ym)=>{if(!ym)return"";const[y,m]=ym.split("-");return new Date(y,m-1).toLocaleDateString("en-GB",{month:"long",year:"numeric"});};
 // parse YYYY-MM-DD as a LOCAL date — new Date("YYYY-MM-DD") is UTC and can
@@ -498,6 +507,7 @@ function renderControls(){
   const saveNote = CLOUD ? (_cloudOk?"":" · cloud save failed — retrying") : (canPersist?"":" · saving is off in this view");
   $("syncStatus").innerHTML = n? (n+" transaction"+(n>1?"s":"")+" tracked"+synced+saveNote) : (sh&&sh.url?"Google Sheet connected — press Sync to pull transactions":"Budgets &amp; spending, beautifully tracked");
   $("controls").innerHTML=`
+    ${n?`<button class="btn btn-ghost" onclick="toggleAmounts()" title="${hideAmounts?"Show amounts":"Hide amounts"}">${hideAmounts?"🙈":"👁"}</button>`:""}
     ${CLOUD&&CLOUD_USER?`<button class="btn btn-ghost" onclick="openAccount()" title="Account &amp; security">👤</button>`:""}
     ${!CLOUD&&CRYPTO_KEY?`<button class="btn btn-ghost" onclick="openSecurity()" title="Security &amp; passphrase">🔒</button>`:""}
     ${sh&&sh.url?`<button class="btn btn-ghost" onclick="syncSheet()" title="Pull the latest from your Google Sheet">↻ Sync</button>`:""}
