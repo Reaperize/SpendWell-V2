@@ -11,6 +11,6 @@
 // Leave both values empty to run in local-only mode (data is encrypted with a
 // passphrase and stored in this browser only — no accounts, no cross-device sync).
 window.SPENDWELL_CONFIG = {
-  SUPABASE_URL: "",      // e.g. "https://abcdefghijkl.supabase.co"
-  SUPABASE_ANON_KEY: ""  // the "anon / public" API key
+  SUPABASE_URL: "https://ycqzyrjseebzlahojzsr.supabase.co",      // project URL only — no /rest/v1/ suffix
+  SUPABASE_ANON_KEY: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InljcXp5cmpzZWViemxhaG9qenNyIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODExNTkzMDgsImV4cCI6MjA5NjczNTMwOH0.ouDUK-VZNhSwKG7GrbkRyeUKxZP0FeDe860UwARLUXk"  // the "anon / public" API key
 };
