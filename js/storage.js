@@ -43,6 +43,7 @@ const DEFAULT_CATEGORIES = [
   {id:"bills",name:"Bills",color:"#B23A2E",budget:0},
   {id:"entertainment",name:"Entertainment",color:"#5B8AB0",budget:0},
   {id:"supplements",name:"Supplements",color:"#4F9D6B",budget:0},
+  {id:"savings",name:"Savings",color:"#4C8577",budget:0},
   {id:"expenses",name:"Expenses",color:"#6B7A8C",budget:0},
   {id:"general",name:"General",color:"#8C8A82",budget:0},
   {id:"excluded",name:"Excluded",color:"#A8A49B",budget:0,type:"excluded"},

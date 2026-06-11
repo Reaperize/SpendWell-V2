@@ -8,8 +8,12 @@ const fmt = (n)=>GBP.format(n||0);
 const fmtShort = (n)=>{const a=Math.abs(n||0);return a>=1000?"£"+(n/1000).toFixed(1).replace(/\.0$/,"")+"k":"£"+Math.round(n||0);};
 const esc = (s)=>String(s==null?"":s).replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
 const monthLabel = (ym)=>{if(!ym)return"";const[y,m]=ym.split("-");return new Date(y,m-1).toLocaleDateString("en-GB",{month:"long",year:"numeric"});};
+// parse YYYY-MM-DD as a LOCAL date — new Date("YYYY-MM-DD") is UTC and can
+// display as the previous day in timezones behind UTC
+const localDate=(s)=>{const[y,m,d]=s.split("-").map(Number);return new Date(y,m-1,d||1);};
 
 let view="dashboard", month=null, year=null, period="month", search="", filterCat="all";
+let customFrom=null, customTo=null; // YYYY-MM-DD bounds for the "Custom" period
 let donutChart=null, trendChart=null, budgetTimer=null;
 
 function toast(msg,isErr){
@@ -83,6 +87,7 @@ function periodBounds(){
   let months;
   if(period==="all") months=all.slice();
   else if(period==="year") months=all.filter(k=>k.slice(0,4)===year);
+  else if(period==="custom"&&customFrom&&customTo) months=all.filter(k=>k>=customFrom.slice(0,7)&&k<=customTo.slice(0,7));
   else months=all.filter(k=>k===month);
   const start=months[0];
   const before=start?all.slice(0,all.indexOf(start)):[];
@@ -91,11 +96,24 @@ function periodBounds(){
 function periodTxns(){
   if(period==="all") return STATE.transactions;
   if(period==="year") return STATE.transactions.filter(t=>t.date.slice(0,4)===year);
+  if(period==="custom"&&customFrom&&customTo) return STATE.transactions.filter(t=>t.date>=customFrom&&t.date<=customTo);
   return STATE.transactions.filter(t=>t.date.slice(0,7)===month);
+}
+// first and last day of quarter q (1-4) in year y, as YYYY-MM-DD
+function quarterRange(y,q){
+  const lastM=q*3, lastD=new Date(+y,lastM,0).getDate();
+  return [y+"-"+String(q*3-2).padStart(2,"0")+"-01", y+"-"+String(lastM).padStart(2,"0")+"-"+String(lastD).padStart(2,"0")];
 }
 function periodLabel(){
   if(period==="all") return "All time";
   if(period==="year") return year||"";
+  if(period==="custom"){
+    if(!customFrom||!customTo) return "Custom range";
+    const y=customFrom.slice(0,4);
+    for(let q=1;q<=4;q++){const[f,t]=quarterRange(y,q);if(f===customFrom&&t===customTo)return "Q"+q+" "+y;}
+    const fm=(d)=>localDate(d).toLocaleDateString("en-GB",{day:"numeric",month:"short",year:"numeric"});
+    return fm(customFrom)+" – "+fm(customTo);
+  }
   return monthLabel(month);
 }
 // ----- budgets are annual; rolling carries unspent budget across months WITHIN a calendar year only (resets each year)
@@ -112,6 +130,14 @@ function categoryTarget(c){
   if(period==="year"){
     const spent=monthsList().reduce((a,k)=>a+(k.slice(0,4)===year?(sm[k]||0):0),0);
     return {target:annual,spent,carryIn:0,remaining:annual-spent,rolling:!!c.rolling,unit:c.budgetUnit||"month"};
+  }
+  if(period==="custom"){
+    // target is the annual budget prorated by the days in the range
+    if(!customFrom||!customTo) return {target:0,spent:0,carryIn:0,remaining:0,rolling:false,unit:c.budgetUnit||"month"};
+    const days=Math.round((new Date(customTo)-new Date(customFrom))/86400000)+1;
+    const target=annual*days/365.25;
+    let spent=0;for(const t of STATE.transactions)if(t.amount<0&&t.category===c.id&&t.date>=customFrom&&t.date<=customTo)spent+=-t.amount;
+    return {target,spent,carryIn:0,remaining:target-spent,rolling:false,unit:c.budgetUnit||"month"};
   }
   // month view
   const Y=month.slice(0,4);
@@ -471,13 +497,7 @@ function renderControls(){
   const synced = sh&&sh.url? (sh.lastSync?" · synced "+timeAgo(sh.lastSync):" · sheet connected") : "";
   const saveNote = CLOUD ? (_cloudOk?"":" · cloud save failed — retrying") : (canPersist?"":" · saving is off in this view");
   $("syncStatus").innerHTML = n? (n+" transaction"+(n>1?"s":"")+" tracked"+synced+saveNote) : (sh&&sh.url?"Google Sheet connected — press Sync to pull transactions":"Budgets &amp; spending, beautifully tracked");
-  const months=deriveMonths(), years=deriveYears();
-  const seg = n? `<div class="seg">${[["month","Month"],["year","Year"],["all","All time"]].map(([v,l])=>`<button class="seg-btn ${period===v?"on":""}" onclick="setPeriod('${v}')">${l}</button>`).join("")}</div>` : "";
-  let selector="";
-  if(n&&period==="month") selector=`<select class="select" onchange="month=this.value;render()">${months.map(m=>`<option value="${m}" ${m===month?"selected":""}>${monthLabel(m)}</option>`).join("")}</select>`;
-  else if(n&&period==="year") selector=`<select class="select" onchange="year=this.value;render()">${years.map(y=>`<option value="${y}" ${y===year?"selected":""}>${y}</option>`).join("")}</select>`;
   $("controls").innerHTML=`
-    ${seg}${selector}
     ${CLOUD&&CLOUD_USER?`<button class="btn btn-ghost" onclick="openAccount()" title="Account &amp; security">👤</button>`:""}
     ${!CLOUD&&CRYPTO_KEY?`<button class="btn btn-ghost" onclick="openSecurity()" title="Security &amp; passphrase">🔒</button>`:""}
     ${sh&&sh.url?`<button class="btn btn-ghost" onclick="syncSheet()" title="Pull the latest from your Google Sheet">↻ Sync</button>`:""}
@@ -487,7 +507,53 @@ function renderControls(){
     ${n?`<button class="btn btn-ghost" onclick="openClear()" title="Clear data and start fresh">Clear</button>`:""}
     <button class="btn btn-primary" onclick="openCsv()">↑ Import CSV</button>`;
 }
-function setPeriod(p){period=p;if(p==="year")deriveYears();if(p==="month")deriveMonths();render();}
+// period bar: the segmented control keeps a fixed spot; the contextual picker
+// (month / year / custom dates) lives in its own slot so buttons never shift
+function periodBarHtml(){
+  const months=deriveMonths(), years=deriveYears();
+  const seg=`<div class="seg">${[["month","Month"],["year","Year"],["all","All time"],["custom","Custom"]].map(([v,l])=>`<button class="seg-btn ${period===v?"on":""}" onclick="setPeriod('${v}')">${l}</button>`).join("")}</div>`;
+  let sel="";
+  if(period==="month") sel=`<select class="select" onchange="month=this.value;render()">${months.map(m=>`<option value="${m}" ${m===month?"selected":""}>${monthLabel(m)}</option>`).join("")}</select>`;
+  else if(period==="year") sel=`<select class="select" onchange="year=this.value;render()">${years.map(y=>`<option value="${y}" ${y===year?"selected":""}>${y}</option>`).join("")}</select>`;
+  else if(period==="custom"){
+    const qOn=(q)=>{const[f,t]=quarterRange(year||"",q);return f===customFrom&&t===customTo;};
+    sel=`<select class="select" onchange="setQuarterYear(this.value)" title="Year for the quarter presets">${years.map(y=>`<option value="${y}" ${y===year?"selected":""}>${y}</option>`).join("")}</select>
+      ${[1,2,3,4].map(q=>`<button class="unit ${qOn(q)?"on":""}" onclick="setQuarter(${q})">Q${q}</button>`).join("")}
+      <input type="date" class="select date-in" value="${customFrom||""}" onchange="setCustomDate('from',this.value)"/>
+      <span class="muted" style="font-size:13px">to</span>
+      <input type="date" class="select date-in" value="${customTo||""}" onchange="setCustomDate('to',this.value)"/>`;
+  }
+  else sel=`<span class="muted" style="font-size:13px;padding:6px 0">Showing everything</span>`;
+  return `<div class="period-bar">${seg}<div class="period-sel">${sel}</div></div>`;
+}
+function setPeriod(p){
+  period=p;
+  if(p==="year")deriveYears();
+  if(p==="month")deriveMonths();
+  if(p==="custom"&&(!customFrom||!customTo)){
+    deriveMonths();
+    if(month){const[y,m]=month.split("-").map(Number);customFrom=month+"-01";customTo=month+"-"+String(new Date(y,m,0).getDate()).padStart(2,"0");}
+  }
+  render();
+}
+function setQuarter(q){
+  period="custom";deriveYears();
+  const [f,t]=quarterRange(year||String(new Date().getFullYear()),q);
+  customFrom=f;customTo=t;render();
+}
+function setQuarterYear(v){
+  const oldY=year;year=v;
+  // if a quarter preset was active, carry it over to the newly picked year
+  for(let q=1;q<=4;q++){const[f,t]=quarterRange(oldY,q);if(f===customFrom&&t===customTo){const[nf,nt]=quarterRange(v,q);customFrom=nf;customTo=nt;break;}}
+  render();
+}
+function setCustomDate(which,v){
+  if(!/^\d{4}-\d{2}-\d{2}$/.test(v))return;
+  period="custom";
+  if(which==="from")customFrom=v;else customTo=v;
+  if(customFrom&&customTo&&customFrom>customTo){const t=customFrom;customFrom=customTo;customTo=t;}
+  render();
+}
 function toggleRolling(id){STATE.categories=STATE.categories.map(c=>c.id===id?{...c,rolling:!c.rolling}:c);saveState();render();}
 function toggleUnit(id){STATE.categories=STATE.categories.map(c=>{if(c.id!==id)return c;const annual=annualBudget(c);return c.budgetUnit==="year"?{...c,budgetUnit:"month",budget:Math.round(annual/12*100)/100}:{...c,budgetUnit:"year",budget:Math.round(annual)};});saveState();render();}
 
@@ -495,7 +561,7 @@ function render(){
   renderControls();
   const app=$("app");
   if(STATE.transactions.length===0){app.innerHTML=emptyView();return;}
-  app.innerHTML=`<div class="tabs">${["dashboard","transactions","budgets"].map(v=>`<button class="tab ${v===view?"active":""}" onclick="view='${v}';render()">${v[0].toUpperCase()+v.slice(1)}</button>`).join("")}</div><div id="viewBody" class="fade"></div>`;
+  app.innerHTML=`${periodBarHtml()}<div class="tabs">${["dashboard","transactions","budgets"].map(v=>`<button class="tab ${v===view?"active":""}" onclick="view='${v}';render()">${v[0].toUpperCase()+v.slice(1)}</button>`).join("")}</div><div id="viewBody" class="fade"></div>`;
   if(view==="dashboard")renderDashboard();
   else if(view==="transactions")renderTransactions();
   else renderBudgets();
@@ -522,7 +588,7 @@ function renderDashboard(){
     let keys=Object.keys(m).sort();
     if(period==="year") keys=keys.filter(k=>k.slice(0,4)===year);
     keys=keys.slice(-12);
-    return keys.map(ym=>({ym,label:new Date(ym+"-01").toLocaleDateString("en-GB",period==="month"?{month:"short"}:{month:"short",year:"2-digit"}).replace(","," "),value:Math.round(m[ym])}));
+    return keys.map(ym=>({ym,label:localDate(ym+"-01").toLocaleDateString("en-GB",period==="month"?{month:"short"}:{month:"short",year:"2-digit"}).replace(","," "),value:Math.round(m[ym])}));
   })();
   const tgt=Object.fromEntries(exp.map(c=>[c.id,categoryTarget(c)]));
   const prog=exp.filter(c=>tgt[c.id].target>0||s.byCat[c.id]);
@@ -538,7 +604,7 @@ function renderDashboard(){
         <div class="serif" style="font-size:18px;margin-bottom:2px">Where it went</div>
         <div class="muted" style="font-size:13px;margin-bottom:8px">${periodLabel()}</div>
         ${donut.length?`<div class="chart-box"><canvas id="donut"></canvas><div class="chart-center"><div><div class="muted" style="font-size:11px;font-weight:600">TOTAL</div><div class="serif" style="font-size:22px">${fmtShort(s.spent)}</div></div></div></div>
-        <div style="margin-top:14px;display:grid;gap:8px">${donut.slice(0,6).map(d=>`<div style="display:flex;align-items:center;gap:9px;font-size:13.5px"><span class="dot" style="background:${d.color}"></span><span style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(d.name)}</span><span style="font-weight:600">${fmt(d.value)}</span></div>`).join("")}${donut.length>6?`<div class="muted" style="font-size:12.5px;padding-left:19px">+${donut.length-6} more · ${fmt(donut.slice(6).reduce((a,d)=>a+d.value,0))}</div>`:""}</div>`:'<p class="muted" style="font-size:14px">No spending in this period.</p>'}
+        <div style="margin-top:14px;display:grid;gap:8px">${donut.map(d=>`<div style="display:flex;align-items:center;gap:9px;font-size:13.5px"><span class="dot" style="background:${d.color}"></span><span style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(d.name)}</span><span style="font-weight:600">${fmt(d.value)}</span></div>`).join("")}</div>`:'<p class="muted" style="font-size:14px">No spending in this period.</p>'}
       </div>
       <div class="card">
         <div class="serif" style="font-size:18px;margin-bottom:14px">Budget progress</div>
@@ -564,7 +630,7 @@ function renderTransactions(){
     </div>
     ${list.length?list.map(t=>{const c=cats[t.category];return `<div class="txn">
       <span class="dot" style="background:${c?c.color:"#999"}"></span>
-      <div class="txn-main"><div style="font-weight:600;font-size:14.5px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(t.description)||"—"}</div><div class="muted" style="font-size:12.5px">${new Date(t.date).toLocaleDateString("en-GB",period==="month"?{day:"numeric",month:"short"}:{day:"numeric",month:"short",year:"numeric"})}</div></div>
+      <div class="txn-main"><div style="font-weight:600;font-size:14.5px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(t.description)||"—"}</div><div class="muted" style="font-size:12.5px">${localDate(t.date).toLocaleDateString("en-GB",period==="month"?{day:"numeric",month:"short"}:{day:"numeric",month:"short",year:"numeric"})}</div></div>
       <select class="pill" onchange="setCat('${t.id}',this.value)">${STATE.categories.map(cat=>`<option value="${cat.id}" ${cat.id===t.category?"selected":""}>${esc(cat.name)}</option>`).join("")}</select>
       <div class="txn-amt" style="color:${t.amount>0?"var(--positive)":"var(--ink)"}">${t.amount>0?"+":""}${fmt(t.amount)}</div>
     </div>`;}).join(""):'<p class="muted" style="font-size:14px;padding:10px 0">No transactions match.</p>'}
@@ -584,7 +650,7 @@ function renderBudgets(){
   $("viewBody").innerHTML=`
     <div class="card">
       <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:2px;gap:10px;flex-wrap:wrap"><div class="serif" style="font-size:18px">Budgets</div><div class="muted" style="font-size:13px" id="budTotal">Target ${fmt(s.totalBudget)}</div></div>
-      <p class="muted" style="font-size:13px;margin:0 0 18px">Budgets reset each calendar year. Set each as monthly (<b>/mo</b>) or yearly (<b>/yr</b>). A <b>/yr</b> budget is a single annual pot — the monthly view shows year-to-date spend against it. For <b>/mo</b> budgets, turn on <b>Rolling</b> to carry unspent budget across months within the same year (it won't roll into the next). Click ✎ to rename, recolour or delete a category. Showing <b>${periodLabel()}</b>.</p>
+      <p class="muted" style="font-size:13px;margin:0 0 18px">Budgets reset each calendar year. Set each as monthly (<b>/mo</b>) or yearly (<b>/yr</b>). A <b>/yr</b> budget is a single annual pot — the monthly view shows year-to-date spend against it. For <b>/mo</b> budgets, turn on <b>Rolling</b> to carry unspent budget across months within the same year (it won't roll into the next). Click ✎ to rename, recolour or delete a category.${period==="custom"?" In a custom range, targets are prorated by the number of days.":""} Showing <b>${periodLabel()}</b>.</p>
       <div style="display:grid;gap:18px">${exp.map(c=>`<div>
         <div style="display:flex;align-items:center;gap:10px;margin-bottom:8px;flex-wrap:wrap"><span class="dot" style="background:${c.color}"></span><span style="font-weight:600;font-size:14.5px;flex:1;min-width:110px">${esc(c.name)}</span><button class="edit-cat" onclick="openEditCat('${c.id}')" title="Rename, recolour or delete this category">✎</button>
           ${c.budgetUnit==="year"?'<span class="muted" style="font-size:11.5px;font-weight:600" title="A yearly budget is a single annual pot — the monthly view shows year-to-date usage">annual pot</span>':`<div class="tg ${c.rolling?"on":""}" onclick="toggleRolling('${c.id}')" title="Carry unspent budget across months within the same calendar year"><span class="sw"></span>Rolling</div>`}

@@ -36,6 +36,12 @@ body{margin:0;font-family:'Manrope',system-ui,sans-serif;color:var(--ink);letter
 .tg.on{color:var(--primary);}
 .unit{font-family:inherit;font-weight:600;font-size:12px;border:1px solid var(--line);background:var(--surface);color:var(--muted);border-radius:7px;padding:6px 8px;cursor:pointer;transition:.14s;min-width:46px;}
 .unit:hover{border-color:var(--primary);color:var(--primary);}
+.unit.on{border-color:var(--primary);color:var(--primary);background:var(--primary-soft);}
+/* period bar sits on its own row so the segmented control and pickers never shift */
+.period-bar{display:flex;gap:12px;align-items:center;flex-wrap:wrap;margin-bottom:16px;}
+.period-sel{display:flex;gap:8px;align-items:center;flex-wrap:wrap;min-height:42px;}
+.period-sel .unit{min-width:38px;padding:8px 9px;}
+.date-in{font-weight:500;padding:8px 10px;font-size:13px;}
 .lock-overlay{position:fixed;inset:0;z-index:9999;background:var(--bg);display:flex;align-items:center;justify-content:center;padding:24px;}
 .lock-card{background:var(--card);border:1px solid var(--line);border-radius:20px;padding:34px 30px;max-width:400px;width:100%;box-shadow:0 18px 50px rgba(44,74,59,.14);text-align:center;}
 .lock-logo{width:54px;height:54px;border-radius:15px;background:var(--primary);color:#F4F0E6;display:grid;place-items:center;font-size:26px;margin:0 auto 16px;}
