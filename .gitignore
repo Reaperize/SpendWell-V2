@@ -1,0 +1,19 @@
+# OS noise
+.DS_Store
+Thumbs.db
+
+# Editors
+.vscode/
+.idea/
+
+# Env files — never commit secrets (the app itself only uses public values in
+# js/config.js, but keep this guard in case server-side pieces are added later)
+.env
+.env.*
+
+# Vercel CLI local state
+.vercel/
+
+# Dependency dirs (if tooling is added later)
+node_modules/
+.claude/
