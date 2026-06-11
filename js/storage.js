@@ -39,6 +39,7 @@ const DEFAULT_CATEGORIES = [
   {id:"transport",name:"Transport",color:"#5C6B8A",budget:0},
   {id:"fuel",name:"Fuel",color:"#B58A2E",budget:0},
   {id:"car-insurance",name:"Car Insurance",color:"#7A6A3A",budget:0},
+  {id:"car-loan",name:"Car Loan",color:"#9C4F5B",budget:0},
   {id:"subscriptions",name:"Subscriptions",color:"#9C6B4A",budget:0},
   {id:"bills",name:"Bills",color:"#B23A2E",budget:0},
   {id:"entertainment",name:"Entertainment",color:"#5B8AB0",budget:0},

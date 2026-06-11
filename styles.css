@@ -37,6 +37,8 @@ body{margin:0;font-family:'Manrope',system-ui,sans-serif;color:var(--ink);letter
 .unit{font-family:inherit;font-weight:600;font-size:12px;border:1px solid var(--line);background:var(--surface);color:var(--muted);border-radius:7px;padding:6px 8px;cursor:pointer;transition:.14s;min-width:46px;}
 .unit:hover{border-color:var(--primary);color:var(--primary);}
 .unit.on{border-color:var(--primary);color:var(--primary);background:var(--primary-soft);}
+.unit[disabled]{opacity:.35;cursor:default;}
+.unit[disabled]:hover{border-color:var(--line);color:var(--muted);}
 /* period bar sits on its own row so the segmented control and pickers never shift */
 .period-bar{display:flex;gap:12px;align-items:center;flex-wrap:wrap;margin-bottom:16px;}
 .period-sel{display:flex;gap:8px;align-items:center;flex-wrap:wrap;min-height:42px;}

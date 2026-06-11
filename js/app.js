@@ -414,10 +414,12 @@ function disconnectSheet(){STATE.sheet=null;saveState();closeModal();renderContr
 const SWATCHES=["#3E6B4F","#C2703D","#3D6E8C","#A14E78","#7A6A3A","#8A5BB0","#4F9D94","#9C6B4A","#B23A2E","#2F7D52","#5C6B8A","#B58A2E"];
 function slugifyName(name){return name.toLowerCase().replace(/[^a-z0-9]+/g,"-").replace(/(^-|-$)/g,"")+"-"+Math.random().toString(36).slice(2,5);}
 function findCatByName(name){const k=String(name==null?"":name).trim().toLowerCase();if(!k)return null;return STATE.categories.find(c=>c.name.trim().toLowerCase()===k)||null;}
-// keep the fallback bucket and excluded categories at the end of the list
+// insert new categories just before the fallback/excluded block without
+// disturbing any custom order the user has set
 function insertCategory(cat){
-  const isTail=(c)=>c.id==="general"||c.id==="other"||c.type==="excluded";
-  STATE.categories=[...STATE.categories.filter(c=>!isTail(c)),cat,...STATE.categories.filter(isTail)];
+  const i=STATE.categories.findIndex(c=>c.id==="general"||c.id==="other"||c.type==="excluded");
+  if(i<0)STATE.categories.push(cat);
+  else STATE.categories.splice(i,0,cat);
 }
 function createCategoryFromName(name){
   const clean=String(name).trim().slice(0,40);
@@ -451,6 +453,35 @@ function addCat(){
   if(findCatByName(name)){toast("There's already a category with that name",true);return;}
   insertCategory({id:slugifyName(name),name,color:window._newColor,budget:0});
   saveState();closeModal();render();
+}
+// ----- reorder categories (income stays pinned first; order drives the
+// budgets page and every category dropdown, and syncs with the rest of state)
+function openReorder(){
+  modal(`<div class="modal-pad">
+    <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:4px"><div class="serif" style="font-size:19px">Reorder categories</div><button class="x" onclick="closeModal()">×</button></div>
+    <p class="muted" style="font-size:13px;margin:0 0 12px">Use the arrows to change the order shown on the Budgets page and in category dropdowns.</p>
+    <div id="reorderList">${reorderRows()}</div>
+    <div style="display:flex;justify-content:flex-end;margin-top:16px"><button class="btn btn-primary" onclick="closeModal();render()">Done</button></div>
+  </div>`);
+}
+function reorderRows(){
+  const rows=STATE.categories.filter(c=>c.type!=="income");
+  return rows.map((c,i)=>`<div style="display:flex;align-items:center;gap:10px;padding:7px 0;border-bottom:1px solid var(--line2)">
+    <span class="dot" style="background:${c.color}"></span>
+    <span style="flex:1;min-width:0;font-weight:600;font-size:14px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(c.name)}${c.type==="excluded"?' <span class="muted" style="font-size:11px;font-weight:600">excluded</span>':""}</span>
+    <button class="unit" ${i===0?"disabled":""} onclick="moveCat('${c.id}',-1)" title="Move up">↑</button>
+    <button class="unit" ${i===rows.length-1?"disabled":""} onclick="moveCat('${c.id}',1)" title="Move down">↓</button>
+  </div>`).join("");
+}
+function moveCat(id,dir){
+  const idxs=STATE.categories.map((c,i)=>c.type!=="income"?i:-1).filter(i=>i>=0);
+  const pos=STATE.categories.findIndex(c=>c.id===id);
+  const k=idxs.indexOf(pos), nk=k+dir;
+  if(k<0||nk<0||nk>=idxs.length)return;
+  const arr=STATE.categories, j=idxs[nk];
+  [arr[pos],arr[j]]=[arr[j],arr[pos]];
+  saveState();
+  const el=$("reorderList");if(el)el.innerHTML=reorderRows();
 }
 function openEditCat(id){
   const c=STATE.categories.find(x=>x.id===id);if(!c)return;
@@ -673,7 +704,7 @@ function renderBudgets(){
       <div class="muted" style="font-size:13px;margin-bottom:12px">Transactions in these categories (e.g. transfers between your own accounts) don't count towards spending, income, charts or budgets.</div>
       ${excl.map(c=>`<div style="display:flex;align-items:center;gap:10px;padding:7px 0"><span class="dot" style="background:${c.color}"></span><span style="font-weight:600;font-size:14px;flex:1;min-width:110px">${esc(c.name)}</span><span class="muted" style="font-size:12.5px">${exclCount(c.id)} transaction${exclCount(c.id)===1?"":"s"} in ${periodLabel()}</span><button class="edit-cat" onclick="openEditCat('${c.id}')" title="Rename, recolour or delete this category">✎</button></div>`).join("")}
     </div>`:""}
-    <div class="card" style="margin-top:16px;display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap"><div><div style="font-weight:600;font-size:14.5px">Add a category</div><div class="muted" style="font-size:13px">Create your own spending categories.</div></div><button class="btn btn-ghost" onclick="openAddCat()">+ New category</button></div>
+    <div class="card" style="margin-top:16px;display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap"><div><div style="font-weight:600;font-size:14.5px">Manage categories</div><div class="muted" style="font-size:13px">Create your own categories or change the order they appear in.</div></div><div style="display:flex;gap:9px;flex-wrap:wrap"><button class="btn btn-ghost" onclick="openReorder()">⇅ Reorder</button><button class="btn btn-ghost" onclick="openAddCat()">+ New category</button></div></div>
     `;
 }
 
