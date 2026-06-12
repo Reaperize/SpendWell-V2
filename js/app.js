@@ -186,9 +186,11 @@ function stats(){
     if(t.amount>0) income+=t.amount;
     else{spent+=-t.amount;byCat[t.category]=(byCat[t.category]||0)+-t.amount;}
   }
-  let totalBudget=0;
-  for(const c of STATE.categories){if(!isBudgetable(c))continue;totalBudget+=categoryTarget(c).target;}
-  return{spent,income,byCat,totalBudget};
+  // totalBudget is the effective target (incl. rolling carry); totalCarry lets
+  // the UI also show the nominal budget = totalBudget - totalCarry
+  let totalBudget=0,totalCarry=0;
+  for(const c of STATE.categories){if(!isBudgetable(c))continue;const T=categoryTarget(c);totalBudget+=T.target;totalCarry+=T.carryIn||0;}
+  return{spent,income,byCat,totalBudget,totalCarry};
 }
 
 // ----- data actions
@@ -686,7 +688,7 @@ function renderDashboard(){
       <div class="card"><div class="stat-label">Spent</div><div class="stat-val" style="color:var(--danger)">${fmt(s.spent)}</div></div>
       <div class="card"><div class="stat-label">Income</div><div class="stat-val" style="color:var(--positive)">${fmt(s.income)}</div></div>
       <div class="card"><div class="stat-label">Net</div><div class="stat-val">${fmt(s.income-s.spent)}</div></div>
-      <div class="card"><div class="stat-label">Budget left</div><div class="stat-val" style="color:${s.totalBudget-s.spent<0?"var(--danger)":"var(--ink)"}">${s.totalBudget>0?fmt(s.totalBudget-s.spent):"—"}</div>${s.totalBudget>0?`<div class="muted" style="font-size:12.5px;margin-top:3px">of ${fmt(s.totalBudget)} budget</div>`:""}</div>
+      <div class="card"><div class="stat-label">Budget left</div><div class="stat-val" style="color:${s.totalBudget-s.spent<0?"var(--danger)":"var(--ink)"}">${s.totalBudget-s.totalCarry>0?fmt(s.totalBudget-s.spent):"—"}</div>${s.totalBudget-s.totalCarry>0?`<div class="muted" style="font-size:12.5px;margin-top:3px">of ${fmt(s.totalBudget-s.totalCarry)} budget${Math.round(s.totalCarry)!==0?` ${s.totalCarry>0?"+":"−"} ${fmt(Math.abs(s.totalCarry))} rolled in`:""}</div>`:""}</div>
     </div>
     <div class="dash-grid">
       <div class="card">
