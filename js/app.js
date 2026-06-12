@@ -683,7 +683,7 @@ function renderDashboard(){
       <div class="card"><div class="stat-label">Spent</div><div class="stat-val" style="color:var(--danger)">${fmt(s.spent)}</div></div>
       <div class="card"><div class="stat-label">Income</div><div class="stat-val" style="color:var(--positive)">${fmt(s.income)}</div></div>
       <div class="card"><div class="stat-label">Net</div><div class="stat-val">${fmt(s.income-s.spent)}</div></div>
-      <div class="card"><div class="stat-label">Budget left</div><div class="stat-val" style="color:${s.totalBudget-s.spent<0?"var(--danger)":"var(--ink)"}">${s.totalBudget>0?fmt(s.totalBudget-s.spent):"—"}</div></div>
+      <div class="card"><div class="stat-label">Budget left</div><div class="stat-val" style="color:${s.totalBudget-s.spent<0?"var(--danger)":"var(--ink)"}">${s.totalBudget>0?fmt(s.totalBudget-s.spent):"—"}</div>${s.totalBudget>0?`<div class="muted" style="font-size:12.5px;margin-top:3px">of ${fmt(s.totalBudget)} budget</div>`:""}</div>
     </div>
     <div class="dash-grid">
       <div class="card">
