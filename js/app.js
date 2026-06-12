@@ -618,6 +618,27 @@ function periodBarHtml(){
 // drill into a category: jump to the Transactions tab filtered to it,
 // keeping whatever period scope (month/year/all/custom) is active
 function drillCat(id){filterCat=id;view="transactions";render();}
+// move a category in or out of the excluded group. Income can't be excluded;
+// neither can General — it's the fallback bucket for uncategorised imports,
+// and excluding it would silently hide unknown transactions from totals
+function setExcluded(id,on){
+  const c=STATE.categories.find(x=>x.id===id);
+  if(!c||c.type==="income")return;
+  if(on&&(c.id==="general"||c.id==="other")){toast("General is the fallback for uncategorised imports and can't be excluded",true);return;}
+  STATE.categories=STATE.categories.map(x=>{
+    if(x.id!==id)return x;
+    const n={...x};
+    if(on)n.type="excluded";else delete n.type;
+    return n;
+  });
+  // keep the list tidy: newly excluded go to the end, re-included rejoin the
+  // main block just before the fallback/excluded tail
+  const cat=STATE.categories.find(x=>x.id===id);
+  STATE.categories=STATE.categories.filter(x=>x.id!==id);
+  if(on)STATE.categories.push(cat);else insertCategory(cat);
+  saveState();render();
+  toast(on?'"'+cat.name+'" no longer counts in budgets or totals':'"'+cat.name+'" now counts in budgets again');
+}
 function setPeriod(p){
   period=p;
   if(p==="year")deriveYears();
@@ -815,11 +836,16 @@ function renderBudgets(){
         <div id="budinfo-${c.id}">${budgetInfoHtml(c)}</div>
       </div>`).join("")}</div>
     </div>
-    ${excl.length?`<div class="card" style="margin-top:16px">
+    <div class="card" style="margin-top:16px">
       <div style="font-weight:600;font-size:14.5px;margin-bottom:2px">Excluded from budgets</div>
       <div class="muted" style="font-size:13px;margin-bottom:12px">Transactions in these categories (e.g. transfers between your own accounts) don't count towards spending, income, charts or budgets.</div>
-      ${excl.map(c=>`<div style="display:flex;align-items:center;gap:10px;padding:7px 0"><span class="dot" style="background:${c.color}"></span><span class="drill-name" style="font-weight:600;font-size:14px;flex:1;min-width:110px" onclick="drillCat('${c.id}')" title="View these transactions">${esc(c.name)}</span><span class="muted" style="font-size:12.5px">${exclCount(c.id)} transaction${exclCount(c.id)===1?"":"s"} in ${periodLabel()}</span><button class="edit-cat" onclick="openEditCat('${c.id}')" title="Rename, recolour or delete this category">✎</button></div>`).join("")}
-    </div>`:""}
+      ${excl.map(c=>`<div style="display:flex;align-items:center;gap:10px;padding:7px 0;flex-wrap:wrap"><span class="dot" style="background:${c.color}"></span><span class="drill-name" style="font-weight:600;font-size:14px;flex:1;min-width:110px" onclick="drillCat('${c.id}')" title="View these transactions">${esc(c.name)}</span><span class="muted" style="font-size:12.5px">${exclCount(c.id)} transaction${exclCount(c.id)===1?"":"s"} in ${periodLabel()}</span><button class="unit" onclick="setExcluded('${c.id}',false)" title="Count this category in budgets and totals again">Include</button><button class="edit-cat" onclick="openEditCat('${c.id}')" title="Rename, recolour or delete this category">✎</button></div>`).join("")}
+      ${(()=>{const candidates=STATE.categories.filter(c=>isBudgetable(c)&&c.id!=="general"&&c.id!=="other");return candidates.length?`<div style="display:flex;gap:9px;align-items:center;flex-wrap:wrap;${excl.length?"border-top:1px solid var(--line2);margin-top:8px;padding-top:14px":""}">
+        <span class="muted" style="font-size:12.5px;font-weight:600">Exclude another:</span>
+        <select class="select" id="exclAdd">${candidates.map(o=>`<option value="${o.id}">${esc(o.name)}</option>`).join("")}</select>
+        <button class="btn btn-ghost" onclick="setExcluded(document.getElementById('exclAdd').value,true)">Exclude</button>
+      </div>`:"";})()}
+    </div>
     <div class="card" style="margin-top:16px;display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap"><div><div style="font-weight:600;font-size:14.5px">Manage categories</div><div class="muted" style="font-size:13px">Create your own categories or change the order they appear in.</div></div><div style="display:flex;gap:9px;flex-wrap:wrap"><button class="btn btn-ghost" onclick="openReorder()">⇅ Reorder</button><button class="btn btn-ghost" onclick="openAddCat()">+ New category</button></div></div>
     `;
 }
