@@ -664,7 +664,7 @@ function renderDashboard(){
     return keys.map(ym=>({ym,label:localDate(ym+"-01").toLocaleDateString("en-GB",period==="month"?{month:"short"}:{month:"short",year:"2-digit"}).replace(","," "),value:Math.round(m[ym])}));
   })();
   const tgt=Object.fromEntries(exp.map(c=>[c.id,categoryTarget(c)]));
-  const prog=exp.filter(c=>tgt[c.id].target>0||s.byCat[c.id]);
+  const prog=exp.filter(c=>annualBudget(c)>0||tgt[c.id].target>0||s.byCat[c.id]);
   $("viewBody").innerHTML=`
     <div class="stats-grid">
       <div class="card"><div class="stat-label">Spent</div><div class="stat-val" style="color:var(--danger)">${fmt(s.spent)}</div></div>
@@ -681,7 +681,7 @@ function renderDashboard(){
       </div>
       <div class="card">
         <div class="serif" style="font-size:18px;margin-bottom:14px">Budget progress</div>
-        ${prog.length?`<div style="display:grid;gap:15px">${prog.sort((a,b)=>(s.byCat[b.id]||0)-(s.byCat[a.id]||0)).map(c=>{const T=tgt[c.id],sp=T.spent,over=T.target>0&&sp>T.target,pct=T.target>0?Math.min(sp/T.target*100,100):0;return `<div><div style="display:flex;justify-content:space-between;gap:8px;font-size:13.5px;margin-bottom:6px"><span style="display:flex;align-items:center;gap:8px;min-width:0"><span class="dot" style="background:${c.color}"></span><span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(c.name)}</span>${T.rolling?' <span class="muted" style="font-size:11px" title="Rolling budget">↻</span>':''}</span><span style="color:${over?"var(--danger)":"var(--muted)"};font-weight:600;flex-shrink:0">${fmt(sp)}${T.target>0?` <span class="muted">/ ${fmt(T.target)}</span>`:""}</span></div>${T.target>0?`<div class="bar-track"><div class="bar-fill" style="width:${pct}%;background:${over?"var(--danger)":c.color}"></div></div>`:""}</div>`;}).join("")}</div>`:'<p class="muted" style="font-size:14px">Set budgets in the Budgets tab to track progress here.</p>'}
+        ${prog.length?`<div style="display:grid;gap:15px">${prog.sort((a,b)=>(s.byCat[b.id]||0)-(s.byCat[a.id]||0)).map(c=>{const T=tgt[c.id],sp=T.spent,hasBudget=annualBudget(c)>0,over=hasBudget&&sp>T.target,pct=T.target>0?Math.min(sp/T.target*100,100):((sp>0||T.target<0)?100:0);return `<div><div style="display:flex;justify-content:space-between;gap:8px;font-size:13.5px;margin-bottom:6px"><span style="display:flex;align-items:center;gap:8px;min-width:0"><span class="dot" style="background:${c.color}"></span><span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(c.name)}</span>${T.rolling?' <span class="muted" style="font-size:11px" title="Rolling budget">↻</span>':''}</span><span style="color:${over?"var(--danger)":"var(--muted)"};font-weight:600;flex-shrink:0">${fmt(sp)}${T.target>0?` <span class="muted">/ ${fmt(T.target)}</span>`:""}</span></div>${hasBudget?`<div class="bar-track"><div class="bar-fill" style="width:${pct}%;background:${over?"var(--danger)":c.color}"></div></div>`:""}</div>`;}).join("")}</div>`:'<p class="muted" style="font-size:14px">Set budgets in the Budgets tab to track progress here.</p>'}
       </div>
     </div>
     ${trend.length>1?`<div class="card" style="margin-top:16px"><div class="serif" style="font-size:18px;margin-bottom:14px">Spending trend</div><div style="height:180px;position:relative"><canvas id="trend"></canvas></div></div>`:""}`;
@@ -717,10 +717,15 @@ function budgetTotalsHtml(){
   return annual>0?`<b>${fmt(annual/12)}</b><span class="muted">/mo</span> · <b>${fmt(annual)}</b><span class="muted">/yr</span>`:`<span class="muted">No budgets set yet</span>`;
 }
 function budgetInfoHtml(c){
-  const T=categoryTarget(c),sp=T.spent,over=T.target>0&&sp>T.target,pct=T.target>0?Math.min(sp/T.target*100,100):0;
-  return T.target>0?`<div class="bar-track"><div class="bar-fill" style="width:${pct}%;background:${over?"var(--danger)":c.color}"></div></div>
-    <div style="font-size:12.5px;margin-top:5px;color:${over?"var(--danger)":"var(--muted)"}">${fmt(sp)} spent · ${over?fmt(sp-T.target)+" over":fmt(T.target-sp)+" left"}${period==="month"&&T.ytd?' · <span class="muted">year to date</span>':""}${period==="month"&&c.rolling&&Math.round(T.carryIn)!==0?` · <span class="muted">${T.carryIn>0?"+"+fmt(T.carryIn)+" rolled in":fmt(T.carryIn)+" rolled in"}</span>`:""}</div>`
-  :`<div style="font-size:12.5px;color:var(--muted)">${sp>0?fmt(sp)+" spent · no budget set":"No budget set"}</div>`;
+  const T=categoryTarget(c),sp=T.spent;
+  // "no budget set" only when there really is none — a rolling budget whose
+  // carried-over deficit drags the month's target to zero or below still has
+  // a budget, and must show as over rather than lose its bar
+  if(annualBudget(c)<=0) return `<div style="font-size:12.5px;color:var(--muted)">${sp>0?fmt(sp)+" spent · no budget set":"No budget set"}</div>`;
+  const over=sp>T.target;
+  const pct=T.target>0?Math.min(sp/T.target*100,100):((sp>0||T.target<0)?100:0);
+  return `<div class="bar-track"><div class="bar-fill" style="width:${pct}%;background:${over?"var(--danger)":c.color}"></div></div>
+    <div style="font-size:12.5px;margin-top:5px;color:${over?"var(--danger)":"var(--muted)"}">${fmt(sp)} spent · ${over?fmt(sp-T.target)+" over":fmt(T.target-sp)+" left"}${period==="month"&&T.ytd?' · <span class="muted">year to date</span>':""}${period==="month"&&c.rolling&&Math.round(T.carryIn)!==0?` · <span class="muted">${T.carryIn>0?"+"+fmt(T.carryIn)+" rolled in":fmt(T.carryIn)+" rolled in"}</span>`:""}</div>`;
 }
 function renderBudgets(){
   const exp=STATE.categories.filter(isBudgetable);
