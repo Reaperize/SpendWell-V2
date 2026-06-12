@@ -180,8 +180,12 @@ function categoryTarget(c){
   return {target,spent,carryIn,remaining:target-spent,rolling:!!c.rolling};
 }
 function stats(){
-  let spent=0,income=0; const byCat={}, excl=excludedSet();
+  let spent=0,income=0,saved=0; const byCat={}, excl=excludedSet();
+  // excluded categories flagged as savings feed the "Saved & invested" tile:
+  // net of money in and out, so withdrawals reduce the figure
+  const savIds=new Set(STATE.categories.filter(c=>c.type==="excluded"&&c.savings).map(c=>c.id));
   for(const t of periodTxns()){
+    if(savIds.has(t.category))saved+=-t.amount;
     if(excl.has(t.category))continue; // transfers/excluded are neither spending nor income
     if(t.amount>0) income+=t.amount;
     else{spent+=-t.amount;byCat[t.category]=(byCat[t.category]||0)+-t.amount;}
@@ -190,7 +194,7 @@ function stats(){
   // the UI also show the nominal budget = totalBudget - totalCarry
   let totalBudget=0,totalCarry=0;
   for(const c of STATE.categories){if(!isBudgetable(c))continue;const T=categoryTarget(c);totalBudget+=T.target;totalCarry+=T.carryIn||0;}
-  return{spent,income,byCat,totalBudget,totalCarry};
+  return{spent,income,byCat,totalBudget,totalCarry,saved,hasSavings:savIds.size>0};
 }
 
 // ----- data actions
@@ -628,7 +632,8 @@ function setExcluded(id,on){
   STATE.categories=STATE.categories.map(x=>{
     if(x.id!==id)return x;
     const n={...x};
-    if(on)n.type="excluded";else delete n.type;
+    if(on){n.type="excluded";if(/sav|invest|pension|\bisa\b/i.test(n.name))n.savings=true;}
+    else delete n.type;
     return n;
   });
   // keep the list tidy: newly excluded go to the end, re-included rejoin the
@@ -668,6 +673,7 @@ function setCustomDate(which,v){
   render();
 }
 function toggleRolling(id){STATE.categories=STATE.categories.map(c=>c.id===id?{...c,rolling:!c.rolling}:c);saveState();render();}
+function toggleSavings(id){STATE.categories=STATE.categories.map(c=>c.id===id?{...c,savings:!c.savings}:c);saveState();render();}
 
 function render(){
   renderControls();
@@ -710,6 +716,7 @@ function renderDashboard(){
       <div class="card"><div class="stat-label">Income</div><div class="stat-val" style="color:var(--positive)">${fmt(s.income)}</div></div>
       <div class="card"><div class="stat-label">Net</div><div class="stat-val">${fmt(s.income-s.spent)}</div></div>
       <div class="card"><div class="stat-label">Budget left</div><div class="stat-val" style="color:${s.totalBudget-s.spent<0?"var(--danger)":"var(--ink)"}">${s.totalBudget-s.totalCarry>0?fmt(s.totalBudget-s.spent):"—"}</div>${s.totalBudget-s.totalCarry>0?`<div class="muted" style="font-size:12.5px;margin-top:3px">of ${fmt(s.totalBudget-s.totalCarry)} budget${Math.round(s.totalCarry)!==0?` ${s.totalCarry>0?"+":"−"} ${fmt(Math.abs(s.totalCarry))} rolled in`:""}</div>`:""}</div>
+      ${s.hasSavings?`<div class="card"><div class="stat-label">Saved &amp; invested</div><div class="stat-val" style="color:${s.saved>0?"var(--positive)":"var(--ink)"}">${fmt(s.saved)}</div><div class="muted" style="font-size:12.5px;margin-top:3px">net, this period</div></div>`:""}
     </div>
     <div class="dash-grid">
       <div class="card">
@@ -838,8 +845,8 @@ function renderBudgets(){
     </div>
     <div class="card" style="margin-top:16px">
       <div style="font-weight:600;font-size:14.5px;margin-bottom:2px">Excluded from budgets</div>
-      <div class="muted" style="font-size:13px;margin-bottom:12px">Transactions in these categories (e.g. transfers between your own accounts) don't count towards spending, income, charts or budgets.</div>
-      ${excl.map(c=>`<div style="display:flex;align-items:center;gap:10px;padding:7px 0;flex-wrap:wrap"><span class="dot" style="background:${c.color}"></span><span class="drill-name" style="font-weight:600;font-size:14px;flex:1;min-width:110px" onclick="drillCat('${c.id}')" title="View these transactions">${esc(c.name)}</span><span class="muted" style="font-size:12.5px">${exclCount(c.id)} transaction${exclCount(c.id)===1?"":"s"} in ${periodLabel()}</span><button class="unit" onclick="setExcluded('${c.id}',false)" title="Count this category in budgets and totals again">Include</button><button class="edit-cat" onclick="openEditCat('${c.id}')" title="Rename, recolour or delete this category">✎</button></div>`).join("")}
+      <div class="muted" style="font-size:13px;margin-bottom:12px">Transactions in these categories (e.g. transfers between your own accounts) don't count towards spending, income, charts or budgets. Turn on <b>Savings</b> to show a category's net outgoings in the dashboard's <b>Saved &amp; invested</b> tile.</div>
+      ${excl.map(c=>`<div style="display:flex;align-items:center;gap:10px;padding:7px 0;flex-wrap:wrap"><span class="dot" style="background:${c.color}"></span><span class="drill-name" style="font-weight:600;font-size:14px;flex:1;min-width:110px" onclick="drillCat('${c.id}')" title="View these transactions">${esc(c.name)}</span><span class="muted" style="font-size:12.5px">${exclCount(c.id)} transaction${exclCount(c.id)===1?"":"s"} in ${periodLabel()}</span><div class="tg ${c.savings?"on":""}" onclick="toggleSavings('${c.id}')" title="Count this category's net outgoings in the dashboard's Saved &amp; invested tile"><span class="sw"></span>Savings</div><button class="unit" onclick="setExcluded('${c.id}',false)" title="Count this category in budgets and totals again">Include</button><button class="edit-cat" onclick="openEditCat('${c.id}')" title="Rename, recolour or delete this category">✎</button></div>`).join("")}
       ${(()=>{const candidates=STATE.categories.filter(c=>isBudgetable(c)&&c.id!=="general"&&c.id!=="other");return candidates.length?`<div style="display:flex;gap:9px;align-items:center;flex-wrap:wrap;${excl.length?"border-top:1px solid var(--line2);margin-top:8px;padding-top:14px":""}">
         <span class="muted" style="font-size:12.5px;font-weight:600">Exclude another:</span>
         <select class="select" id="exclAdd">${candidates.map(o=>`<option value="${o.id}">${esc(o.name)}</option>`).join("")}</select>
