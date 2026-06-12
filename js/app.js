@@ -454,34 +454,66 @@ function addCat(){
   insertCategory({id:slugifyName(name),name,color:window._newColor,budget:0});
   saveState();closeModal();render();
 }
-// ----- reorder categories (income stays pinned first; order drives the
-// budgets page and every category dropdown, and syncs with the rest of state)
+// ----- reorder categories by dragging (income stays pinned first; order
+// drives the budgets page and every category dropdown, and syncs with state).
+// Pointer events instead of HTML5 drag-and-drop so it works on touchscreens.
 function openReorder(){
   modal(`<div class="modal-pad">
     <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:4px"><div class="serif" style="font-size:19px">Reorder categories</div><button class="x" onclick="closeModal()">×</button></div>
-    <p class="muted" style="font-size:13px;margin:0 0 12px">Use the arrows to change the order shown on the Budgets page and in category dropdowns.</p>
+    <p class="muted" style="font-size:13px;margin:0 0 12px">Drag the ⠿ handle to change the order shown on the Budgets page and in category dropdowns.</p>
     <div id="reorderList">${reorderRows()}</div>
     <div style="display:flex;justify-content:flex-end;margin-top:16px"><button class="btn btn-primary" onclick="closeModal();render()">Done</button></div>
   </div>`);
+  initReorderDrag();
 }
 function reorderRows(){
-  const rows=STATE.categories.filter(c=>c.type!=="income");
-  return rows.map((c,i)=>`<div style="display:flex;align-items:center;gap:10px;padding:7px 0;border-bottom:1px solid var(--line2)">
+  return STATE.categories.filter(c=>c.type!=="income").map(c=>`<div class="drag-row" data-id="${c.id}">
+    <span class="drag-handle" title="Drag to reorder">⠿</span>
     <span class="dot" style="background:${c.color}"></span>
     <span style="flex:1;min-width:0;font-weight:600;font-size:14px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(c.name)}${c.type==="excluded"?' <span class="muted" style="font-size:11px;font-weight:600">excluded</span>':""}</span>
-    <button class="unit" ${i===0?"disabled":""} onclick="moveCat('${c.id}',-1)" title="Move up">↑</button>
-    <button class="unit" ${i===rows.length-1?"disabled":""} onclick="moveCat('${c.id}',1)" title="Move down">↓</button>
   </div>`).join("");
 }
-function moveCat(id,dir){
-  const idxs=STATE.categories.map((c,i)=>c.type!=="income"?i:-1).filter(i=>i>=0);
-  const pos=STATE.categories.findIndex(c=>c.id===id);
-  const k=idxs.indexOf(pos), nk=k+dir;
-  if(k<0||nk<0||nk>=idxs.length)return;
-  const arr=STATE.categories, j=idxs[nk];
-  [arr[pos],arr[j]]=[arr[j],arr[pos]];
+function initReorderDrag(){
+  const list=$("reorderList");if(!list)return;
+  const scroller=list.closest(".modal");
+  list.addEventListener("pointerdown",(e)=>{
+    const handle=e.target.closest(".drag-handle");if(!handle)return;
+    const row=handle.closest(".drag-row");if(!row)return;
+    e.preventDefault();
+    row.classList.add("dragging");
+    const move=(ev)=>{
+      const y=ev.clientY;
+      // auto-scroll the modal when dragging near its edges
+      if(scroller){const sr=scroller.getBoundingClientRect();if(y<sr.top+44)scroller.scrollTop-=9;else if(y>sr.bottom-44)scroller.scrollTop+=9;}
+      // slide the row into the slot the pointer is over
+      let next=null;
+      for(const o of list.querySelectorAll(".drag-row:not(.dragging)")){
+        const r=o.getBoundingClientRect();
+        if(y<r.top+r.height/2){next=o;break;}
+      }
+      if(next)list.insertBefore(row,next);else list.appendChild(row);
+    };
+    const up=()=>{
+      row.classList.remove("dragging");
+      document.removeEventListener("pointermove",move);
+      document.removeEventListener("pointerup",up);
+      document.removeEventListener("pointercancel",up);
+      applyReorder();
+    };
+    document.addEventListener("pointermove",move);
+    document.addEventListener("pointerup",up);
+    document.addEventListener("pointercancel",up);
+  });
+}
+function applyReorder(){
+  const ids=[...document.querySelectorAll("#reorderList .drag-row")].map(el=>el.dataset.id);
+  if(!ids.length)return;
+  const map=catById();
+  const income=STATE.categories.filter(c=>c.type==="income");
+  const ordered=ids.map(id=>map[id]).filter(Boolean);
+  if(ordered.length+income.length!==STATE.categories.length)return; // never drop a category
+  STATE.categories=[...income,...ordered];
   saveState();
-  const el=$("reorderList");if(el)el.innerHTML=reorderRows();
 }
 function openEditCat(id){
   const c=STATE.categories.find(x=>x.id===id);if(!c)return;
