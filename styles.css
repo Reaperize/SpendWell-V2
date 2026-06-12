@@ -46,6 +46,9 @@ body{margin:0;font-family:'Manrope',system-ui,sans-serif;color:var(--ink);letter
 .drag-handle{cursor:grab;touch-action:none;color:var(--muted);font-size:16px;padding:3px 7px;user-select:none;-webkit-user-select:none;border-radius:7px;}
 .drag-handle:hover{color:var(--primary);background:var(--primary-soft);}
 .drag-row.dragging .drag-handle{cursor:grabbing;}
+/* per-month budget editor grid */
+.mb-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;}
+@media(max-width:540px){.mb-grid{grid-template-columns:repeat(2,1fr);}}
 /* collapsible inline help */
 details.hint{font-size:12.5px;color:var(--muted);min-width:0;}
 details.hint summary{cursor:pointer;font-weight:600;list-style:none;display:inline-flex;align-items:center;gap:5px;user-select:none;}

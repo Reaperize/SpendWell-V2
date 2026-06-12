@@ -125,45 +125,59 @@ function periodLabel(){
   }
   return monthLabel(month);
 }
-// ----- budgets are annual; rolling carries unspent budget across months WITHIN a calendar year only (resets each year)
-function annualBudget(c){const b=+c.budget||0;return c.budgetUnit==="year"?b:b*12;}
+// ----- budgets are monthly with optional per-month overrides (c.months maps
+// month number 1-12 to an amount, repeating every year — e.g. an annual
+// premium in March). Rolling carries unspent budget across months WITHIN a
+// calendar year only (resets each year).
+function monthOverride(c,mNum){
+  if(!c.months)return null;
+  const v=c.months[mNum]!=null?c.months[mNum]:c.months[String(mNum)];
+  return v==null||v===""?null:(+v||0);
+}
+function monthBudget(c,mNum){const o=monthOverride(c,mNum);return o!=null?o:(+c.budget||0);}
+function hasOverrides(c){for(let m=1;m<=12;m++)if(monthOverride(c,m)!=null)return true;return false;}
+function annualBudget(c){let a=0;for(let m=1;m<=12;m++)a+=monthBudget(c,m);return a;}
 function yearsWithData(){return [...new Set(STATE.transactions.map(t=>t.date.slice(0,4)))];}
 function categoryTarget(c){
-  const annual=annualBudget(c), monthly=annual/12, sm=spentByMonthCat(c.id);
+  const annual=annualBudget(c), sm=spentByMonthCat(c.id);
   if(period==="all"){
     const years=yearsWithData().length||1;
     const spent=Object.values(sm).reduce((a,v)=>a+v,0);
     const target=annual*years;
-    return {target,spent,carryIn:0,remaining:target-spent,rolling:!!c.rolling,unit:c.budgetUnit||"month"};
+    return {target,spent,carryIn:0,remaining:target-spent,rolling:!!c.rolling};
   }
   if(period==="year"){
     const spent=monthsList().reduce((a,k)=>a+(k.slice(0,4)===year?(sm[k]||0):0),0);
-    return {target:annual,spent,carryIn:0,remaining:annual-spent,rolling:!!c.rolling,unit:c.budgetUnit||"month"};
+    return {target:annual,spent,carryIn:0,remaining:annual-spent,rolling:!!c.rolling};
   }
   if(period==="custom"){
-    // target is the annual budget prorated by the days in the range
-    if(!customFrom||!customTo) return {target:0,spent:0,carryIn:0,remaining:0,rolling:false,unit:c.budgetUnit||"month"};
-    const days=Math.round((new Date(customTo)-new Date(customFrom))/86400000)+1;
-    const target=annual*days/365.25;
+    if(!customFrom||!customTo) return {target:0,spent:0,carryIn:0,remaining:0,rolling:false};
+    // sum each overlapped month's budget, prorated by the days covered
+    let target=0,[y,m]=customFrom.slice(0,7).split("-").map(Number);
+    const endKey=customTo.slice(0,7);
+    for(let i=0;i<1200;i++){
+      const key=y+"-"+String(m).padStart(2,"0"), dim=new Date(y,m,0).getDate();
+      const a=key===customFrom.slice(0,7)?+customFrom.slice(8,10):1;
+      const b=key===endKey?+customTo.slice(8,10):dim;
+      target+=monthBudget(c,m)*(b-a+1)/dim;
+      if(key===endKey)break;
+      m++;if(m>12){m=1;y++;}
+    }
     let spent=0;for(const t of STATE.transactions)if(t.amount<0&&t.category===c.id&&t.date>=customFrom&&t.date<=customTo)spent+=-t.amount;
-    return {target,spent,carryIn:0,remaining:target-spent,rolling:false,unit:c.budgetUnit||"month"};
+    return {target,spent,carryIn:0,remaining:target-spent,rolling:false};
   }
   // month view
-  const Y=month.slice(0,4);
-  if((c.budgetUnit||"month")==="year"){
-    // a yearly budget is a single annual pot: show year-to-date spend against the full annual amount
-    const ytd=monthsList().reduce((a,k)=>a+((k.slice(0,4)===Y&&k<=month)?(sm[k]||0):0),0);
-    return {target:annual,spent:ytd,carryIn:0,remaining:annual-ytd,rolling:false,unit:"year",ytd:true};
-  }
+  const Y=month.slice(0,4), mNum=+month.slice(5,7);
   const spent=sm[month]||0;
   let carryIn=0;
   if(c.rolling){
     const before=monthsList().filter(k=>k.slice(0,4)===Y && k<month);
+    const beforeAlloc=before.reduce((a,k)=>a+monthBudget(c,+k.slice(5,7)),0);
     const beforeSpent=before.reduce((a,k)=>a+(sm[k]||0),0);
-    carryIn=monthly*before.length-beforeSpent; // never looks before January, so no cross-year carry
+    carryIn=beforeAlloc-beforeSpent; // never looks before January, so no cross-year carry
   }
-  const target=monthly+carryIn;
-  return {target,spent,carryIn,monthly,remaining:target-spent,rolling:!!c.rolling,unit:c.budgetUnit||"month",ytd:false};
+  const target=monthBudget(c,mNum)+carryIn;
+  return {target,spent,carryIn,remaining:target-spent,rolling:!!c.rolling};
 }
 function stats(){
   let spent=0,income=0; const byCat={}, excl=excludedSet();
@@ -209,7 +223,7 @@ function exportData(){
 }
 function openRestore(){$("restoreInput").click();}
 $("restoreInput").addEventListener("change",e=>{const f=e.target.files[0];e.target.value="";if(!f)return;
-  const r=new FileReader();r.onload=()=>{try{const d=JSON.parse(r.result);if(!d||!Array.isArray(d.transactions))throw 0;STATE={transactions:d.transactions,categories:(d.categories&&d.categories.length?d.categories:STATE.categories),rules:d.rules||{},sheet:d.sheet||STATE.sheet||null};sortTxns();saveState();month=null;render();toast("Backup restored");}catch(_){toast("That file isn't a SpendWell backup",true);}};r.readAsText(f);});
+  const r=new FileReader();r.onload=()=>{try{const d=JSON.parse(r.result);if(!d||!Array.isArray(d.transactions))throw 0;STATE={transactions:d.transactions,categories:(d.categories&&d.categories.length?d.categories:STATE.categories),rules:d.rules||{},sheet:d.sheet||STATE.sheet||null};normalizeCategories();sortTxns();saveState();month=null;render();toast("Backup restored");}catch(_){toast("That file isn't a SpendWell backup",true);}};r.readAsText(f);});
 
 // ----- start fresh / clear data
 function openClear(){
@@ -628,7 +642,6 @@ function setCustomDate(which,v){
   render();
 }
 function toggleRolling(id){STATE.categories=STATE.categories.map(c=>c.id===id?{...c,rolling:!c.rolling}:c);saveState();render();}
-function toggleUnit(id){STATE.categories=STATE.categories.map(c=>{if(c.id!==id)return c;const annual=annualBudget(c);return c.budgetUnit==="year"?{...c,budgetUnit:"month",budget:Math.round(annual/12*100)/100}:{...c,budgetUnit:"year",budget:Math.round(annual)};});saveState();render();}
 
 function render(){
   renderControls();
@@ -713,9 +726,58 @@ function renderTransactions(){
 // combined budget across all categories, normalised to monthly + yearly
 // (independent of the selected period — this is what's *set*, not spent)
 function budgetTotalsHtml(){
-  const annual=STATE.categories.filter(isBudgetable).reduce((a,c)=>a+annualBudget(c),0);
-  return annual>0?`<b>${fmt(annual/12)}</b><span class="muted">/mo</span> · <b>${fmt(annual)}</b><span class="muted">/yr</span>`:`<span class="muted">No budgets set yet</span>`;
+  const cats=STATE.categories.filter(isBudgetable);
+  const annual=cats.reduce((a,c)=>a+annualBudget(c),0);
+  const varies=cats.some(hasOverrides);
+  return annual>0?`<b>${fmt(annual/12)}</b><span class="muted">/mo${varies?" avg":""}</span> · <b>${fmt(annual)}</b><span class="muted">/yr</span>`:`<span class="muted">No budgets set yet</span>`;
 }
+// ----- per-month budget editor
+const MONTH_NAMES=["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+function openMonthBudgets(id){
+  const c=STATE.categories.find(x=>x.id===id);if(!c)return;
+  modal(`<div class="modal-pad">
+    <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:4px"><div class="serif" style="font-size:19px">Month-specific budgets · ${esc(c.name)}</div><button class="x" onclick="closeModal()">×</button></div>
+    <p class="muted" style="font-size:13px;margin:0 0 14px">Leave a month blank to use the default of <b>£${(+c.budget||0)}/mo</b>. Type an amount only for months that differ — e.g. an annual premium in the month it's paid. These repeat every year.</p>
+    <div class="mb-grid">${MONTH_NAMES.map((n,i)=>{const o=monthOverride(c,i+1);return `<div><label class="field-label" style="margin-bottom:4px">${n}</label><input class="input mb-in" type="number" min="0" step="any" data-m="${i+1}" value="${o!=null?o:""}" placeholder="${(+c.budget||0)||0}" oninput="updateMbTotal('${id}')"/></div>`;}).join("")}</div>
+    <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;margin-top:16px;flex-wrap:wrap">
+      <span class="muted" style="font-size:13px">Year total: <b id="mbTotal">${fmt(annualBudget(c))}</b></span>
+      <div style="display:flex;gap:9px;flex-wrap:wrap">
+        <button class="btn btn-ghost" onclick="clearMonthBudgets('${id}')" title="Blank all months (back to the default for every month)">Clear</button>
+        <button class="btn btn-ghost" onclick="closeModal()">Cancel</button>
+        <button class="btn btn-primary" onclick="saveMonthBudgets('${id}')">Save</button>
+      </div>
+    </div>
+  </div>`);
+}
+function readMbInputs(){
+  const months={};
+  document.querySelectorAll(".mb-in").forEach(inp=>{
+    const v=inp.value.trim();
+    if(v!==""){const n=parseFloat(v);if(!isNaN(n)&&n>=0)months[inp.dataset.m]=n;}
+  });
+  return months;
+}
+function updateMbTotal(id){
+  const c=STATE.categories.find(x=>x.id===id);if(!c)return;
+  const months=readMbInputs(), def=+c.budget||0;
+  let total=0;for(let m=1;m<=12;m++)total+=months[m]!=null?months[m]:def;
+  const el=$("mbTotal");if(el)el.textContent=fmt(total);
+}
+function saveMonthBudgets(id){
+  const months=readMbInputs();
+  STATE.categories=STATE.categories.map(c=>{
+    if(c.id!==id)return c;
+    const n={...c};
+    if(Object.keys(months).length)n.months=months;else delete n.months;
+    return n;
+  });
+  saveState();closeModal();render();toast("Monthly amounts saved");
+}
+function clearMonthBudgets(id){
+  document.querySelectorAll(".mb-in").forEach(i=>i.value="");
+  updateMbTotal(id);
+}
+
 function budgetInfoHtml(c){
   const T=categoryTarget(c),sp=T.spent;
   // "no budget set" only when there really is none — a rolling budget whose
@@ -725,7 +787,7 @@ function budgetInfoHtml(c){
   const over=sp>T.target;
   const pct=T.target>0?Math.min(sp/T.target*100,100):((sp>0||T.target<0)?100:0);
   return `<div class="bar-track"><div class="bar-fill" style="width:${pct}%;background:${over?"var(--danger)":c.color}"></div></div>
-    <div style="font-size:12.5px;margin-top:5px;color:${over?"var(--danger)":"var(--muted)"}">${fmt(sp)} spent · ${over?fmt(sp-T.target)+" over":fmt(T.target-sp)+" left"}${period==="month"&&T.ytd?' · <span class="muted">year to date</span>':""}${period==="month"&&c.rolling&&Math.round(T.carryIn)!==0?` · <span class="muted">${T.carryIn>0?"+"+fmt(T.carryIn)+" rolled in":fmt(T.carryIn)+" rolled in"}</span>`:""}</div>`;
+    <div style="font-size:12.5px;margin-top:5px;color:${over?"var(--danger)":"var(--muted)"}">${fmt(sp)} spent · ${over?fmt(sp-T.target)+" over":fmt(T.target-sp)+" left"}${period==="month"&&monthOverride(c,+month.slice(5,7))!=null?' · <span class="muted">month-specific budget</span>':""}${period==="month"&&c.rolling&&Math.round(T.carryIn)!==0?` · <span class="muted">${T.carryIn>0?"+"+fmt(T.carryIn)+" rolled in":fmt(T.carryIn)+" rolled in"}</span>`:""}</div>`;
 }
 function renderBudgets(){
   const exp=STATE.categories.filter(isBudgetable);
@@ -737,14 +799,14 @@ function renderBudgets(){
       <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:10px;flex-wrap:wrap;margin-bottom:18px">
         <details class="hint">
           <summary>How budgets work</summary>
-          <p>Budgets reset each calendar year. Set each as monthly (<b>/mo</b>) or yearly (<b>/yr</b>). A <b>/yr</b> budget is a single annual pot — the monthly view shows year-to-date spend against it. For <b>/mo</b> budgets, turn on <b>Rolling</b> to carry unspent budget across months within the same year (it won't roll into the next). In a custom date range, targets are prorated by the number of days. Click ✎ to rename, recolour or delete a category.</p>
+          <p>Each category has a monthly budget; budgets reset each calendar year. Click <b>📅</b> to give specific months their own amount — handy for things paid once a year, like insurance (the button is highlighted when a category has month-specific amounts). Turn on <b>Rolling</b> to carry unspent budget across months within the same year (it won't roll into the next). In a custom date range, targets are prorated by the number of days. Click ✎ to rename, recolour or delete a category.</p>
         </details>
         <span class="muted" style="font-size:12.5px;font-weight:600">${periodLabel()}</span>
       </div>
       <div style="display:grid;gap:18px">${exp.map(c=>`<div>
         <div style="display:flex;align-items:center;gap:10px;margin-bottom:8px;flex-wrap:wrap"><span class="dot" style="background:${c.color}"></span><span style="font-weight:600;font-size:14.5px;flex:1;min-width:110px">${esc(c.name)}</span><button class="edit-cat" onclick="openEditCat('${c.id}')" title="Rename, recolour or delete this category">✎</button>
-          ${c.budgetUnit==="year"?'<span class="muted" style="font-size:11.5px;font-weight:600" title="A yearly budget is a single annual pot — the monthly view shows year-to-date usage">annual pot</span>':`<div class="tg ${c.rolling?"on":""}" onclick="toggleRolling('${c.id}')" title="Carry unspent budget across months within the same calendar year"><span class="sw"></span>Rolling</div>`}
-          <span class="muted" style="font-size:13px">£</span><input class="input" style="width:96px;font-weight:600" type="number" min="0" step="any" placeholder="0" value="${(+c.budget||0)||""}" oninput="setBudget('${c.id}',this.value)"/><button class="unit" onclick="toggleUnit('${c.id}')" title="Switch between a monthly and yearly amount (keeps the same annual budget)">${c.budgetUnit==="year"?"/yr":"/mo"}</button></div>
+          <div class="tg ${c.rolling?"on":""}" onclick="toggleRolling('${c.id}')" title="Carry unspent budget across months within the same calendar year"><span class="sw"></span>Rolling</div>
+          <span class="muted" style="font-size:13px">£</span><input class="input" style="width:96px;font-weight:600" type="number" min="0" step="any" placeholder="0" value="${(+c.budget||0)||""}" oninput="setBudget('${c.id}',this.value)"/><span class="muted" style="font-size:12px">/mo</span><button class="unit ${hasOverrides(c)?"on":""}" onclick="openMonthBudgets('${c.id}')" title="Set different amounts for specific months — e.g. an annual premium in the month it's paid">📅</button></div>
         <div id="budinfo-${c.id}">${budgetInfoHtml(c)}</div>
       </div>`).join("")}</div>
     </div>

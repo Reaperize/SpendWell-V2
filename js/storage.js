@@ -51,8 +51,22 @@ const DEFAULT_CATEGORIES = [
   {id:"transfer",name:"Transfer",color:"#BBB7AC",budget:0,type:"excluded"},
 ];
 function defaultState(){return {transactions:[],categories:JSON.parse(JSON.stringify(DEFAULT_CATEGORIES)),rules:{},sheet:null};}
+// migrate legacy /yr budgets: an annual pot becomes the equivalent monthly
+// amount with Rolling on (the closest behaviour now that budgets are monthly
+// with optional per-month overrides)
+function normalizeCategories(){
+  for(const c of STATE.categories){
+    if(c.budgetUnit==="year"){
+      const annual=+c.budget||0;
+      c.budget=Math.round(annual/12*100)/100;
+      if(annual>0)c.rolling=true;
+    }
+    delete c.budgetUnit;
+  }
+}
 function adoptState(d){
   STATE={transactions:d.transactions||[],categories:(d.categories&&d.categories.length?d.categories:JSON.parse(JSON.stringify(DEFAULT_CATEGORIES))),rules:d.rules||{},sheet:d.sheet||null};
+  normalizeCategories();
   sortTxns();
 }
 
