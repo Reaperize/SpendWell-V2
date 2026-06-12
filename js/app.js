@@ -197,7 +197,7 @@ function setBudget(id,val){
   // input mid-typing and drop focus after every keystroke
   const c=STATE.categories.find(x=>x.id===id);
   const info=$("budinfo-"+id);if(info&&c)info.innerHTML=budgetInfoHtml(c);
-  const tot=$("budTotal");if(tot)tot.textContent="Target "+fmt(stats().totalBudget);
+  const sum=$("budSumLine");if(sum)sum.innerHTML=budgetTotalsHtml();
 }
 
 // ----- backup / restore
@@ -710,6 +710,12 @@ function renderTransactions(){
   </div>`;
 }
 
+// combined budget across all categories, normalised to monthly + yearly
+// (independent of the selected period — this is what's *set*, not spent)
+function budgetTotalsHtml(){
+  const annual=STATE.categories.filter(isBudgetable).reduce((a,c)=>a+annualBudget(c),0);
+  return annual>0?`<b>${fmt(annual/12)}</b><span class="muted">/mo</span> · <b>${fmt(annual)}</b><span class="muted">/yr</span>`:`<span class="muted">No budgets set yet</span>`;
+}
 function budgetInfoHtml(c){
   const T=categoryTarget(c),sp=T.spent,over=T.target>0&&sp>T.target,pct=T.target>0?Math.min(sp/T.target*100,100):0;
   return T.target>0?`<div class="bar-track"><div class="bar-fill" style="width:${pct}%;background:${over?"var(--danger)":c.color}"></div></div>
@@ -717,13 +723,19 @@ function budgetInfoHtml(c){
   :`<div style="font-size:12.5px;color:var(--muted)">${sp>0?fmt(sp)+" spent · no budget set":"No budget set"}</div>`;
 }
 function renderBudgets(){
-  const s=stats();const exp=STATE.categories.filter(isBudgetable);
+  const exp=STATE.categories.filter(isBudgetable);
   const excl=STATE.categories.filter(c=>c.type==="excluded");
   const exclCount=(id)=>periodTxns().filter(t=>t.category===id).length;
   $("viewBody").innerHTML=`
     <div class="card">
-      <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:2px;gap:10px;flex-wrap:wrap"><div class="serif" style="font-size:18px">Budgets</div><div class="muted" style="font-size:13px" id="budTotal">Target ${fmt(s.totalBudget)}</div></div>
-      <p class="muted" style="font-size:13px;margin:0 0 18px">Budgets reset each calendar year. Set each as monthly (<b>/mo</b>) or yearly (<b>/yr</b>). A <b>/yr</b> budget is a single annual pot — the monthly view shows year-to-date spend against it. For <b>/mo</b> budgets, turn on <b>Rolling</b> to carry unspent budget across months within the same year (it won't roll into the next). Click ✎ to rename, recolour or delete a category.${period==="custom"?" In a custom range, targets are prorated by the number of days.":""} Showing <b>${periodLabel()}</b>.</p>
+      <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:4px;gap:10px;flex-wrap:wrap"><div class="serif" style="font-size:18px">Budgets</div><div style="font-size:14px"><span class="muted" style="font-size:12.5px;font-weight:600;margin-right:6px">TOTAL</span><span id="budSumLine">${budgetTotalsHtml()}</span></div></div>
+      <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:10px;flex-wrap:wrap;margin-bottom:18px">
+        <details class="hint">
+          <summary>How budgets work</summary>
+          <p>Budgets reset each calendar year. Set each as monthly (<b>/mo</b>) or yearly (<b>/yr</b>). A <b>/yr</b> budget is a single annual pot — the monthly view shows year-to-date spend against it. For <b>/mo</b> budgets, turn on <b>Rolling</b> to carry unspent budget across months within the same year (it won't roll into the next). In a custom date range, targets are prorated by the number of days. Click ✎ to rename, recolour or delete a category.</p>
+        </details>
+        <span class="muted" style="font-size:12.5px;font-weight:600">${periodLabel()}</span>
+      </div>
       <div style="display:grid;gap:18px">${exp.map(c=>`<div>
         <div style="display:flex;align-items:center;gap:10px;margin-bottom:8px;flex-wrap:wrap"><span class="dot" style="background:${c.color}"></span><span style="font-weight:600;font-size:14.5px;flex:1;min-width:110px">${esc(c.name)}</span><button class="edit-cat" onclick="openEditCat('${c.id}')" title="Rename, recolour or delete this category">✎</button>
           ${c.budgetUnit==="year"?'<span class="muted" style="font-size:11.5px;font-weight:600" title="A yearly budget is a single annual pot — the monthly view shows year-to-date usage">annual pot</span>':`<div class="tg ${c.rolling?"on":""}" onclick="toggleRolling('${c.id}')" title="Carry unspent budget across months within the same calendar year"><span class="sw"></span>Rolling</div>`}
